@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────
+
+enum GlobalRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum SpaceRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum SpaceType {
+  DISCUSSION
+  COURSE
+  EVENT
+  CHAT
+  RESOURCE
+}
+
+enum SpaceVisibility {
+  PUBLIC
+  PRIVATE
+  PAID
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  TRIALING
+}
+
+enum NotificationType {
+  MENTION
+  REPLY
+  REACTION
+  NEW_POST
+  EVENT_REMINDER
+  SYSTEM
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+// ─── Users ──────────────────────────────────────────────
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  username    String   @unique
+  displayName String?
+  avatarUrl   String?
+  bio         String?
+  role        GlobalRole @default(MEMBER)
+  onboarded   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  spaces        SpaceMember[]
+  posts         Post[]
+  comments      Comment[]
+  reactions     Reaction[]
+  notifications Notification[]
+  subscriptions Subscription[]
+  eventsHosted  Event[]        @relation("EventHost")
+  lessonProgress LessonProgress[]
+  createdSpaces Space[]        @relation("SpaceCreator")
+  messages      Message[]
+
+  @@map("users")
+}
+
+// ─── Spaces ─────────────────────────────────────────────
+
+model Space {
+  id             String          @id @default(cuid())
+  name           String
+  slug           String          @unique
+  description    String?
+  icon           String?
+  color          String?         @default("#6366f1")
+  type           SpaceType       @default(DISCUSSION)
+  visibility     SpaceVisibility @default(PUBLIC)
+  sortOrder      Int             @default(0)
+  createdById    String
+  createdBy      User            @relation("SpaceCreator", fields: [createdById], references: [id])
+  stripeProductId String?
+  stripePriceId  String?
+  priceAmount    Int?            // cents
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  members  SpaceMember[]
+  posts    Post[]
+  events   Event[]
+  courses  Course[]
+  messages Message[]
+
+  @@map("spaces")
+}
+
+model SpaceMember {
+  userId   String
+  spaceId  String
+  role     SpaceRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, spaceId])
+  @@map("space_members")
+}
+
+// ─── Posts & Comments ───────────────────────────────────
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String?
+  content   Json     // rich text content
+  authorId  String
+  spaceId   String
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  space     Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  reactions Reaction[]
+
+  @@index([spaceId, createdAt(sort: Desc)])
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  authorId  String
+  postId    String
+  parentId  String?  // threaded replies
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  post     Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id])
+  children Comment[] @relation("CommentThread")
+  reactions Reaction[]
+
+  @@index([postId, createdAt])
+  @@map("comments")
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  userId    String
+  postId    String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId, emoji])
+  @@unique([userId, commentId, emoji])
+  @@map("reactions")
+}
+
+// ─── Messages (Chat Spaces) ────────────────────────────
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  authorId  String
+  spaceId   String
+  createdAt DateTime @default(now())
+
+  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  space  Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@index([spaceId, createdAt])
+  @@map("messages")
+}
+
+// ─── Events ─────────────────────────────────────────────
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  spaceId     String
+  hostId      String
+  startsAt    DateTime
+  endsAt      DateTime?
+  location    String?
+  isOnline    Boolean  @default(false)
+  meetingUrl  String?
+  createdAt   DateTime @default(now())
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  host  User  @relation("EventHost", fields: [hostId], references: [id])
+
+  @@map("events")
+}
+
+// ─── Courses & Lessons ──────────────────────────────────
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  spaceId     String
+  published   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  space   Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@map("courses")
+}
+
+model Lesson {
+  id        String   @id @default(cuid())
+  title     String
+  content   Json?
+  videoUrl  String?
+  courseId  String
+  sortOrder Int      @default(0)
+  isDrip    Boolean  @default(false)
+  dripDays  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course   Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  progress LessonProgress[]
+
+  @@map("lessons")
+}
+
+model LessonProgress {
+  userId     String
+  lessonId   String
+  completed  Boolean  @default(false)
+  completedAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@id([userId, lessonId])
+  @@map("lesson_progress")
+}
+
+// ─── Payments ───────────────────────────────────────────
+
+model MembershipTier {
+  id              String          @id @default(cuid())
+  name            String
+  description     String?
+  stripeProductId String?
+  stripePriceId   String?
+  priceAmount     Int             // cents
+  interval        BillingInterval @default(MONTHLY)
+  features        Json?
+  createdAt       DateTime        @default(now())
+
+  subscriptions Subscription[]
+
+  @@map("membership_tiers")
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String
+  tierId               String
+  stripeSubscriptionId String?            @unique
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier MembershipTier @relation(fields: [tierId], references: [id])
+
+  @@map("subscriptions")
+}
+
+// ─── Notifications ──────────────────────────────────────
+
+model Notification {
+  id           String           @id @default(cuid())
+  userId       String
+  type         NotificationType
+  title        String
+  body         String?
+  read         Boolean          @default(false)
+  linkedPostId  String?
+  linkedSpaceId String?
+  createdAt    DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read, createdAt(sort: Desc)])
+  @@map("notifications")
+}
