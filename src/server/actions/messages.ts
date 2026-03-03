@@ -1,6 +1,5 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 async function getAuthUserId() {
@@ -18,27 +17,32 @@ export async function sendMessage(
   parentId?: string
 ) {
   const userId = await getAuthUserId();
+  const supabase = await createServerSupabaseClient();
 
-  const message = await prisma.message.create({
-    data: {
+  const { data: message, error } = await supabase
+    .from("messages")
+    .insert({
       content,
       authorId: userId,
       spaceId,
       parentId: parentId || null,
-    },
-    include: {
-      author: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
-    },
-  });
+      type: "TEXT",
+    })
+    .select(
+      "id, content, type, authorId, spaceId, parentId, editedAt, createdAt"
+    )
+    .single();
 
-  return message;
+  if (error) throw new Error("Failed to send message");
+
+  // Get author info
+  const { data: author } = await supabase
+    .from("users")
+    .select("id, username, displayName, avatarUrl")
+    .eq("id", userId)
+    .single();
+
+  return { ...message, author };
 }
 
 export async function getMessages(
@@ -46,36 +50,57 @@ export async function getMessages(
   cursor?: string,
   limit: number = 50
 ) {
-  const messages = await prisma.message.findMany({
-    where: { spaceId },
-    take: limit + 1,
-    ...(cursor
-      ? {
-          cursor: { id: cursor },
-          skip: 1,
-        }
-      : {}),
-    orderBy: { createdAt: "desc" },
-    include: {
-      author: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
-      _count: {
-        select: { children: true },
-      },
-    },
-  });
+  const supabase = await createServerSupabaseClient();
+
+  let query = supabase
+    .from("messages")
+    .select(
+      "id, content, type, authorId, spaceId, parentId, editedAt, createdAt"
+    )
+    .eq("spaceId", spaceId)
+    .order("createdAt", { ascending: false })
+    .limit(limit + 1);
+
+  if (cursor) {
+    const { data: cursorMsg } = await supabase
+      .from("messages")
+      .select("createdAt")
+      .eq("id", cursor)
+      .single();
+    if (cursorMsg) {
+      query = query.lt("createdAt", cursorMsg.createdAt);
+    }
+  }
+
+  const { data: messages } = await query;
+
+  if (!messages) return { messages: [], hasMore: false, nextCursor: undefined };
 
   const hasMore = messages.length > limit;
   if (hasMore) messages.pop();
 
+  // Get author info for all messages
+  const authorIds = [...new Set(messages.map((m) => m.authorId))];
+  const { data: authors } = await supabase
+    .from("users")
+    .select("id, username, displayName, avatarUrl")
+    .in("id", authorIds);
+
+  const authorMap = new Map(authors?.map((a) => [a.id, a]) || []);
+
+  const enriched = messages.reverse().map((m) => ({
+    ...m,
+    author: authorMap.get(m.authorId) || {
+      id: m.authorId,
+      username: "unknown",
+      displayName: null,
+      avatarUrl: null,
+    },
+    _count: { children: 0 }, // TODO: count replies
+  }));
+
   return {
-    messages: messages.reverse(), // oldest first for display
+    messages: enriched,
     hasMore,
     nextCursor: hasMore ? messages[0]?.id : undefined,
   };
@@ -83,90 +108,103 @@ export async function getMessages(
 
 export async function editMessage(messageId: string, content: string) {
   const userId = await getAuthUserId();
+  const supabase = await createServerSupabaseClient();
 
-  const message = await prisma.message.findUnique({
-    where: { id: messageId },
-  });
+  const { data: message } = await supabase
+    .from("messages")
+    .select("authorId")
+    .eq("id", messageId)
+    .single();
 
   if (!message) throw new Error("Message not found");
   if (message.authorId !== userId) throw new Error("Not authorized");
 
-  return prisma.message.update({
-    where: { id: messageId },
-    data: { content, editedAt: new Date() },
-    include: {
-      author: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
-    },
-  });
+  const { data: updated, error } = await supabase
+    .from("messages")
+    .update({ content, editedAt: new Date().toISOString() })
+    .eq("id", messageId)
+    .select(
+      "id, content, type, authorId, spaceId, parentId, editedAt, createdAt"
+    )
+    .single();
+
+  if (error) throw new Error("Failed to edit message");
+
+  const { data: author } = await supabase
+    .from("users")
+    .select("id, username, displayName, avatarUrl")
+    .eq("id", userId)
+    .single();
+
+  return { ...updated, author };
 }
 
 export async function deleteMessage(messageId: string) {
   const userId = await getAuthUserId();
+  const supabase = await createServerSupabaseClient();
 
-  const message = await prisma.message.findUnique({
-    where: { id: messageId },
-    include: { space: { include: { members: true } } },
-  });
+  const { data: message } = await supabase
+    .from("messages")
+    .select("authorId, spaceId")
+    .eq("id", messageId)
+    .single();
 
   if (!message) throw new Error("Message not found");
 
-  // Allow author or space admins/owners
   const isAuthor = message.authorId === userId;
-  const membership = message.space.members.find((m) => m.userId === userId);
-  const isAdmin =
-    membership?.role === "OWNER" ||
-    membership?.role === "ADMIN" ||
-    membership?.role === "MODERATOR";
+
+  // Check if admin/moderator
+  let isAdmin = false;
+  if (message.spaceId) {
+    const { data: membership } = await supabase
+      .from("space_members")
+      .select("role")
+      .eq("userId", userId)
+      .eq("spaceId", message.spaceId)
+      .single();
+    isAdmin =
+      membership?.role === "ADMIN" || membership?.role === "MODERATOR";
+  }
 
   if (!isAuthor && !isAdmin) throw new Error("Not authorized");
 
-  await prisma.message.delete({ where: { id: messageId } });
+  await supabase.from("messages").delete().eq("id", messageId);
   return { success: true };
 }
 
 export async function markAsRead(spaceId: string, messageId: string) {
   const userId = await getAuthUserId();
+  const supabase = await createServerSupabaseClient();
 
-  await prisma.userChannelState.upsert({
-    where: {
-      userId_spaceId: { userId, spaceId },
-    },
-    update: {
-      lastReadMessageId: messageId,
-      unreadCount: 0,
-    },
-    create: {
+  await supabase.from("user_channel_state").upsert(
+    {
       userId,
       spaceId,
       lastReadMessageId: messageId,
       unreadCount: 0,
+      updatedAt: new Date().toISOString(),
     },
-  });
+    { onConflict: "userId,spaceId" }
+  );
 
   return { success: true };
 }
 
 export async function getSpaceMembers(spaceId: string) {
-  const members = await prisma.spaceMember.findMany({
-    where: { spaceId },
-    include: {
-      user: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-        },
-      },
-    },
-  });
+  const supabase = await createServerSupabaseClient();
 
-  return members.map((m) => m.user);
+  const { data: members } = await supabase
+    .from("space_members")
+    .select("userId")
+    .eq("spaceId", spaceId);
+
+  if (!members) return [];
+
+  const userIds = members.map((m) => m.userId);
+  const { data: users } = await supabase
+    .from("users")
+    .select("id, username, displayName, avatarUrl")
+    .in("id", userIds);
+
+  return users || [];
 }
