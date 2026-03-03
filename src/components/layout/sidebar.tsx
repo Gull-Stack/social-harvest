@@ -16,6 +16,7 @@ import {
   Plus,
   ChevronDown,
   LogOut,
+  Mail,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,6 +35,7 @@ import { createClient } from "@/lib/supabase/client";
 const mainNav = [
   { href: "/feed", icon: Home, label: "Home" },
   { href: "/members", icon: Users, label: "Members" },
+  { href: "/messages", icon: Mail, label: "Messages" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 

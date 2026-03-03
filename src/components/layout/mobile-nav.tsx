@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Grid3X3, Users, Bell, Settings } from "lucide-react";
+import { Home, Grid3X3, Users, Bell, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/app/feed", icon: Home, label: "Feed" },
   { href: "/app/spaces", icon: Grid3X3, label: "Spaces" },
   { href: "/app/members", icon: Users, label: "Members" },
+  { href: "/app/messages", icon: Mail, label: "Messages" },
   { href: "/app/notifications", icon: Bell, label: "Alerts" },
-  { href: "/app/settings", icon: Settings, label: "Settings" },
 ];
 
 export function MobileNav() {
