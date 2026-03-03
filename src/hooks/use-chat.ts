@@ -66,7 +66,7 @@ export function useChat(spaceId: string, currentUserId?: string) {
       try {
         const result = await getMessages(spaceId);
         if (!cancelled) {
-          setMessages(result.messages.map(m => serializeMessage(m as Record<string, unknown>)));
+          setMessages(result.messages.map((m: Record<string, unknown>) => serializeMessage(m)));
           setHasMore(result.hasMore);
           setNextCursor(result.nextCursor);
         }
@@ -259,7 +259,7 @@ export function useChat(spaceId: string, currentUserId?: string) {
     } catch (err) {
       // Revert - refetch
       const result = await getMessages(spaceId);
-      setMessages(result.messages.map(m => serializeMessage(m as Record<string, unknown>)));
+      setMessages(result.messages.map((m: Record<string, unknown>) => serializeMessage(m)));
       throw err;
     }
   }, [spaceId]);
@@ -270,7 +270,7 @@ export function useChat(spaceId: string, currentUserId?: string) {
       await deleteMessageAction(messageId);
     } catch (err) {
       const result = await getMessages(spaceId);
-      setMessages(result.messages.map(m => serializeMessage(m as Record<string, unknown>)));
+      setMessages(result.messages.map((m: Record<string, unknown>) => serializeMessage(m)));
       throw err;
     }
   }, [spaceId]);
@@ -279,7 +279,7 @@ export function useChat(spaceId: string, currentUserId?: string) {
     if (!hasMore || !nextCursor) return;
     try {
       const result = await getMessages(spaceId, nextCursor);
-      setMessages((prev) => [...(result.messages.map(m => serializeMessage(m as Record<string, unknown>))), ...prev]);
+      setMessages((prev) => [...(result.messages.map((m: Record<string, unknown>) => serializeMessage(m))), ...prev]);
       setHasMore(result.hasMore);
       setNextCursor(result.nextCursor);
     } catch (err) {

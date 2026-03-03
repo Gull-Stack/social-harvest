@@ -31,7 +31,7 @@ export function useDM(conversationId: string | null, currentUserId?: string) {
       try {
         const result = await getDMMessages(conversationId!);
         if (!cancelled) {
-          setMessages(result.messages.map(m => ({ ...m, spaceId: "", parentId: null } as unknown as ChatMessage)));
+          setMessages(result.messages.map((m: Record<string, unknown>) => ({ ...m, spaceId: "", parentId: null } as unknown as ChatMessage)));
           setHasMore(result.hasMore);
           setNextCursor(result.nextCursor);
         }
@@ -157,7 +157,7 @@ export function useDM(conversationId: string | null, currentUserId?: string) {
     if (!hasMore || !nextCursor || !conversationId) return;
     try {
       const result = await getDMMessages(conversationId, nextCursor);
-      setMessages((prev) => [...(result.messages.map(m => ({ ...m, spaceId: "", parentId: null } as unknown as ChatMessage))), ...prev]);
+      setMessages((prev) => [...(result.messages.map((m: Record<string, unknown>) => ({ ...m, spaceId: "", parentId: null } as unknown as ChatMessage))), ...prev]);
       setHasMore(result.hasMore);
       setNextCursor(result.nextCursor);
     } catch (err) {
