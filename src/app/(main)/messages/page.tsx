@@ -2,7 +2,12 @@ import { Header } from "@/components/layout/header";
 import { MessagesView } from "@/components/messages/MessagesView";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-export default async function MessagesPage() {
+interface MessagesPageProps {
+  searchParams: Promise<{ dm?: string }>;
+}
+
+export default async function MessagesPage({ searchParams }: MessagesPageProps) {
+  const { dm } = await searchParams;
   const supabase = await createServerSupabaseClient();
 
   const {
@@ -32,6 +37,7 @@ export default async function MessagesPage() {
       <MessagesView
         currentUser={currentUser}
         members={members || []}
+        initialDmUserId={dm}
       />
     </>
   );

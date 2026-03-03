@@ -37,9 +37,10 @@ interface ConversationItem {
 interface MessagesViewProps {
   currentUser: UserProfile | null;
   members: UserProfile[];
+  initialDmUserId?: string;
 }
 
-export function MessagesView({ currentUser, members }: MessagesViewProps) {
+export function MessagesView({ currentUser, members, initialDmUserId }: MessagesViewProps) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [activeOtherUser, setActiveOtherUser] = useState<UserProfile | null>(null);
@@ -58,6 +59,16 @@ export function MessagesView({ currentUser, members }: MessagesViewProps) {
     sendMessage,
     loadMore,
   } = useDM(activeConvoId, currentUser?.id);
+
+  // Auto-open DM if initialDmUserId provided (from member card click)
+  useEffect(() => {
+    if (!initialDmUserId || !currentUser) return;
+    const targetUser = members.find((m) => m.id === initialDmUserId);
+    if (targetUser) {
+      startConversation(targetUser);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDmUserId]);
 
   // Load conversations
   useEffect(() => {
