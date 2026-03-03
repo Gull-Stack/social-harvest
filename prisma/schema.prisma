@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ─── Enums ──────────────────────────────────────────────
@@ -81,8 +80,9 @@ model User {
   subscriptions Subscription[]
   eventsHosted  Event[]        @relation("EventHost")
   lessonProgress LessonProgress[]
-  createdSpaces Space[]        @relation("SpaceCreator")
-  messages      Message[]
+  createdSpaces  Space[]            @relation("SpaceCreator")
+  messages       Message[]
+  channelStates  UserChannelState[]
 
   @@map("users")
 }
@@ -107,11 +107,12 @@ model Space {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  members  SpaceMember[]
-  posts    Post[]
-  events   Event[]
-  courses  Course[]
-  messages Message[]
+  members       SpaceMember[]
+  posts         Post[]
+  events        Event[]
+  courses       Course[]
+  messages      Message[]
+  channelStates UserChannelState[]
 
   @@map("spaces")
 }
@@ -189,18 +190,44 @@ model Reaction {
 
 // ─── Messages (Chat Spaces) ────────────────────────────
 
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  SYSTEM
+}
+
 model Message {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   content   String
+  type      MessageType @default(TEXT)
   authorId  String
   spaceId   String
-  createdAt DateTime @default(now())
+  parentId  String?     // threaded replies
+  editedAt  DateTime?
+  createdAt DateTime    @default(now())
 
-  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  space  Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  space    Space     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parent   Message?  @relation("MessageThread", fields: [parentId], references: [id])
+  children Message[] @relation("MessageThread")
 
   @@index([spaceId, createdAt])
   @@map("messages")
+}
+
+model UserChannelState {
+  userId            String
+  spaceId           String
+  lastReadMessageId String?
+  unreadCount       Int    @default(0)
+  updatedAt         DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, spaceId])
+  @@map("user_channel_state")
 }
 
 // ─── Events ─────────────────────────────────────────────

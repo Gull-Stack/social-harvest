@@ -1,6 +1,7 @@
 import { Header } from "@/components/layout/header";
 import { PostComposer } from "@/components/feed/post-composer";
 import { PostCard } from "@/components/feed/post-card";
+import { ChatView } from "@/components/chat/ChatView";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Users, MessageSquare, Settings } from "lucide-react";
@@ -14,13 +15,40 @@ export default async function SpacePage({ params }: SpacePageProps) {
 
   // Mock data — will come from DB
   const space = {
+    id: slug, // will be real ID from DB
     name: slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
     description: "A space for the community to connect and share.",
     color: "#6366f1",
     memberCount: 248,
     postCount: 120,
+    type: slug === "watercooler" ? "CHAT" : "DISCUSSION" as string,
   };
 
+  // TODO: Get current user from Supabase session
+  const currentUser = {
+    id: "mock-user-id",
+    username: "bryce",
+    displayName: "Bryce Morgan",
+  };
+
+  // If it's a CHAT space, render the chat view
+  if (space.type === "CHAT") {
+    return (
+      <div className="flex h-full flex-col">
+        <ChatView
+          spaceId={space.id}
+          spaceName={space.name}
+          spaceColor={space.color}
+          memberCount={space.memberCount}
+          currentUserId={currentUser.id}
+          currentUsername={currentUser.username}
+          currentDisplayName={currentUser.displayName}
+        />
+      </div>
+    );
+  }
+
+  // Otherwise render the standard posts view
   const mockPosts = [
     {
       author: { name: "Sarah Chen", username: "sarahc", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah" },
